@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nutritional Insights Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Inter:wght@400;500;600&family=Roboto+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#faf9f5; --ink:#1c1b19; --line:#1c1b19;
+    --leaf:#3f7d45; --leaf-dim:#e7f0e7;
+    --amber:#b8791f; --amber-dim:#faf1e2;
+    --alert:#a83a3a; --alert-dim:#fbeaea;
+    --muted:#726f68;
+  }
+  *{ box-sizing:border-box; }
+  body{ background:var(--paper); color:var(--ink); font-family:'Inter',system-ui,sans-serif; }
+  .display{ font-family:'Archivo',system-ui,sans-serif; }
+  .mono{ font-family:'Roboto Mono',monospace; font-variant-numeric: tabular-nums; }
+
+  /* ---- signature: nutrition-facts label styling for the stats panel ---- */
+  .facts-panel{
+    background:#fff; border:3px solid var(--line); border-radius:2px;
+  }
+  .facts-title{
+    font-family:'Archivo',sans-serif; font-weight:800; font-size:1.75rem;
+    border-bottom:8px solid var(--line); padding-bottom:.35rem; letter-spacing:-0.01em;
+  }
+  .facts-row{ border-bottom:1px solid #d8d5cc; padding:.6rem 0; display:flex; justify-content:space-between; align-items:baseline; }
+  .facts-row:last-child{ border-bottom:none; }
+  .facts-label{ font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; }
+  .facts-value{ font-family:'Archivo',sans-serif; font-weight:800; font-size:1.6rem; }
+  .thick-rule{ border-top:8px solid var(--line); margin:.5rem 0; }
+
+  .card{ background:#fff; border:1px solid #e4e1d8; border-radius:10px; }
+  .chart-container{ position:relative; height:280px; }
+
+  .btn{
+    font-weight:600; border-radius:8px; padding:.6rem 1.1rem; transition:transform .15s, background .15s;
+    border:1px solid var(--line);
+  }
+  .btn:active{ transform: translateY(1px); }
+  .btn:focus-visible, a:focus-visible, button:focus-visible{
+    outline: 3px solid var(--leaf); outline-offset:2px;
+  }
+
+  .pulse{ animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{opacity:.55} 50%{opacity:1} }
+  .spinner{
+    width:16px; height:16px; border-radius:50%;
+    border:2.5px solid rgba(255,255,255,.5); border-top-color:#fff;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+  .skeleton{
+    background: linear-gradient(90deg,#eceae2 25%,#e2ded2 37%,#eceae2 63%);
+    background-size:400% 100%; animation: shimmer 1.4s ease infinite; border-radius:6px;
+  }
+  @keyframes shimmer{ 0%{background-position:100% 0} 100%{background-position:0 0} }
+
+  @media (prefers-reduced-motion: reduce){
+    .pulse,.spinner,.skeleton{ animation:none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="border-b-4" style="border-color:var(--ink)">
+  <div class="max-w-6xl mx-auto px-5 py-6 flex flex-wrap justify-between items-center gap-4">
+    <div>
+      <p class="facts-label">Diet &amp; Recipe Analytics</p>
+      <h1 class="display text-3xl font-extrabold -mt-1">Nutritional Insights</h1>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="statusBadge" role="status" aria-live="polite"
+        class="bg-[var(--leaf)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2">
+        <span class="w-2 h-2 bg-white rounded-full"></span> Online
+      </span>
+      <button onclick="refreshData()" id="refreshBtn" class="btn bg-[var(--ink)] text-white hover:bg-black">
+        Refresh data
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-5 py-8">
+
+  <!-- Nutrition-facts styled stat panel -->
+  <section class="facts-panel p-6 mb-8 max-w-md" aria-label="Dataset summary">
+    <h2 class="facts-title">Dataset Facts</h2>
+    <div class="thick-rule"></div>
+    <div id="statsBody">
+      <div class="facts-row"><span class="facts-label">Total recipes</span><span id="totalRecipes" class="facts-value skeleton">&nbsp;</span></div>
+      <div class="facts-row"><span class="facts-label">Diet types tracked</span><span id="dietTypes" class="facts-value skeleton">&nbsp;</span></div>
+      <div class="facts-row"><span class="facts-label">Query time</span><span id="execTime" class="facts-value mono skeleton">&nbsp;</span></div>
+    </div>
+    <div class="thick-rule"></div>
+    <p id="dataSource" class="text-xs text-[var(--muted)]">Loading source info…</p>
+  </section>
+
+  <!-- Charts -->
+  <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <div class="card p-6">
+      <h3 class="font-semibold text-gray-800 mb-1">Average macronutrients by diet</h3>
+      <p class="text-sm text-[var(--muted)] mb-4">Protein, carbs, and fat across diet types</p>
+      <div class="chart-container"><canvas id="barChart" role="img" aria-label="Bar chart of average protein, carbs and fat per diet type"></canvas></div>
+    </div>
+
+    <div class="card p-6">
+      <h3 class="font-semibold text-gray-800 mb-1">Recipe distribution by diet</h3>
+      <p class="text-sm text-[var(--muted)] mb-4">Share of recipes per diet type</p>
+      <div class="chart-container"><canvas id="pieChart" role="img" aria-label="Pie chart of recipe counts per diet type"></canvas></div>
+    </div>
+
+    <div class="card p-6">
+      <h3 class="font-semibold text-gray-800 mb-1">Top cuisines</h3>
+      <p class="text-sm text-[var(--muted)] mb-4">Most common cuisine types</p>
+      <div class="chart-container"><canvas id="cuisineChart" role="img" aria-label="Bar chart of recipe counts per cuisine"></canvas></div>
+    </div>
+
+    <div class="card p-6">
+      <h3 class="font-semibold text-gray-800 mb-1">Top protein recipes</h3>
+      <p class="text-sm text-[var(--muted)] mb-4">Highest protein content, this dataset</p>
+      <div id="topProteinList" class="space-y-1 max-h-64 overflow-y-auto" aria-live="polite">
+        <p class="text-[var(--muted)] text-center py-6 pulse">Loading…</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Correlations -->
+  <section class="card p-6 mb-8">
+    <h3 class="font-semibold text-gray-800 mb-4">Nutrient correlations</h3>
+    <div id="correlationTable" class="overflow-x-auto">
+      <p class="text-[var(--muted)] text-center py-6 pulse">Loading…</p>
+    </div>
+  </section>
+
+  <!-- Raw data -->
+  <section class="card p-6">
+    <div class="flex justify-between items-center mb-3">
+      <h3 class="font-semibold text-gray-800">Raw API response</h3>
+      <button onclick="toggleRawData()" id="rawToggleBtn" class="text-[var(--leaf)] hover:underline text-sm font-medium"
+        aria-expanded="false" aria-controls="rawDataContainer">
+        Show raw JSON
+      </button>
+    </div>
+    <div id="rawDataContainer" class="hidden">
+      <pre id="rawData" class="bg-gray-50 border border-gray-200 p-4 rounded-lg text-xs overflow-auto max-h-96 mono"></pre>
+    </div>
+  </section>
+
+</main>
+
+<footer class="border-t mt-8 py-6" style="border-color:#e4e1d8">
+  <div class="max-w-6xl mx-auto px-5 text-center text-sm text-[var(--muted)]">
+    Built with Azure Functions + Chart.js
+  </div>
+</footer>
+
+<script>
+// ===== CONFIGURATION =====
+const API_URL = "https://dietfunc1784147923.azurewebsites.net/api/insights";
+const HEALTH_URL = "https://dietfunc1784147923.azurewebsites.net/api/health";
+const REQUEST_TIMEOUT_MS = 15000;
+const MAX_RETRIES = 2;
+const AUTO_REFRESH_MS = 60000;
+
+// ===== STATE =====
+let chartInstances = {};
+let currentData = null;
+let rawDataVisible = false;
+let isLoading = false;
+
+const elements = {
+  totalRecipes: document.getElementById('totalRecipes'),
+  dietTypes: document.getElementById('dietTypes'),
+  execTime: document.getElementById('execTime'),
+  topProteinList: document.getElementById('topProteinList'),
+  correlationTable: document.getElementById('correlationTable'),
+  rawData: document.getElementById('rawData'),
+  rawDataContainer: document.getElementById('rawDataContainer'),
+  dataSource: document.getElementById('dataSource'),
+  statusBadge: document.getElementById('statusBadge'),
+  refreshBtn: document.getElementById('refreshBtn'),
+};
+
+// ===== NETWORK HELPERS =====
+async function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchWithRetry(url, retries = MAX_RETRIES) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, REQUEST_TIMEOUT_MS);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt))); // backoff
+      }
+    }
+  }
+  throw lastError;
+}
+
+// ===== MAIN FUNCTIONS =====
+async function loadData() {
+  if (isLoading) return;
+  isLoading = true;
+  elements.refreshBtn.disabled = true;
+  updateStatus('loading');
+
+  try {
+    await fetchWithRetry(HEALTH_URL);
+    const response = await fetchWithRetry(API_URL);
+    const data = await response.json();
+    currentData = data;
+
+    if (data.status === 'success') {
+      updateDashboard(data);
+      updateStatus('success');
+    } else {
+      throw new Error(data.error || 'API reported an unknown error');
+    }
+  } catch (error) {
+    console.error('Error loading data:', error);
+    const message = error.name === 'AbortError' ? 'Request timed out' : error.message;
+    updateStatus('error', message);
+  } finally {
+    isLoading = false;
+    elements.refreshBtn.disabled = false;
+  }
+}
+
+function updateDashboard(data) {
+  elements.totalRecipes.textContent = data.total_records ?? 0;
+  elements.totalRecipes.classList.remove('skeleton');
+  elements.dietTypes.textContent = data.diet_types?.length ?? 0;
+  elements.dietTypes.classList.remove('skeleton');
+  elements.execTime.textContent = data.execution_time ? `${data.execution_time.toFixed(3)}s` : '—';
+  elements.execTime.classList.remove('skeleton');
+
+  if (data.timestamp) {
+    const date = new Date(data.timestamp);
+    elements.dataSource.textContent = `Last updated ${date.toLocaleString()}`;
+  } else {
+    elements.dataSource.textContent = 'Update time unavailable';
+  }
+
+  renderBarChart(data.average_macronutrients);
+  renderPieChart(data.diet_counts);
+  renderCuisineChart(data.cuisine_counts);
+  renderTopProteinList(data.top_protein_recipes);
+  renderCorrelationTable(data.correlations);
+
+  elements.rawData.textContent = JSON.stringify(data, null, 2);
+}
+
+// ===== CHART FUNCTIONS =====
+const PALETTE = ['#3f7d45', '#b8791f', '#3B6E8F', '#a83a3a', '#7d5fa6', '#c46a9e', '#2f9e94', '#c9772f'];
+
+function renderBarChart(data) {
+  const ctx = document.getElementById('barChart').getContext('2d');
+  if (chartInstances.bar) chartInstances.bar.destroy();
+  if (!data) return renderEmptyChart(ctx);
+
+  const dietTypes = Object.keys(data['Protein(g)'] || {});
+  const proteins = dietTypes.map(d => Math.round(data['Protein(g)']?.[d] || 0));
+  const carbs = dietTypes.map(d => Math.round(data['Carbs(g)']?.[d] || 0));
+  const fats = dietTypes.map(d => Math.round(data['Fat(g)']?.[d] || 0));
+
+  chartInstances.bar = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: dietTypes.map(titleCase),
+      datasets: [
+        { label: 'Protein (g)', data: proteins, backgroundColor: PALETTE[0] },
+        { label: 'Carbs (g)', data: carbs, backgroundColor: PALETTE[1] },
+        { label: 'Fat (g)', data: fats, backgroundColor: PALETTE[2] },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'Grams' } } }
+    }
+  });
+}
+
+function renderPieChart(data) {
+  const ctx = document.getElementById('pieChart').getContext('2d');
+  if (chartInstances.pie) chartInstances.pie.destroy();
+  if (!data) return renderEmptyChart(ctx);
+
+  const labels = Object.keys(data);
+  const values = Object.values(data);
+
+  chartInstances.pie = new Chart(ctx, {
+    type: 'pie',
+    data: {
+      labels: labels.map(titleCase),
+      datasets: [{ data: values, backgroundColor: PALETTE.slice(0, labels.length) }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+  });
+}
+
+function renderCuisineChart(data) {
+  const ctx = document.getElementById('cuisineChart').getContext('2d');
+  if (chartInstances.cuisine) chartInstances.cuisine.destroy();
+  if (!data) return renderEmptyChart(ctx);
+
+  const labels = Object.keys(data);
+  const values = Object.values(data);
+
+  chartInstances.cuisine = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels.map(titleCase),
+      datasets: [{ label: 'Number of recipes', data: values, backgroundColor: PALETTE[4] }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+}
+
+function renderEmptyChart(ctx) {
+  ctx.canvas.parentElement.insertAdjacentHTML('beforeend',
+    '<p class="text-[var(--muted)] text-sm text-center pt-16">No data returned for this chart.</p>');
+}
+
+function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ===== LIST / TABLE FUNCTIONS =====
+function renderTopProteinList(recipes) {
+  const container = elements.topProteinList;
+  if (!recipes || recipes.length === 0) {
+    container.innerHTML = '<p class="text-[var(--muted)] text-center py-6">No data available</p>';
+    return;
+  }
+
+  const rows = recipes.slice(0, 10).map((item, index) => {
+    const rank = ['🥇', '🥈', '🥉'][index] || `${index + 1}.`;
+    const rawName = item.Recipe_name || 'Unknown recipe';
+    const name = rawName.length > 40 ? rawName.slice(0, 40) + '…' : rawName;
+    return `
+      <div class="flex justify-between items-center px-1 py-2 border-b border-gray-100 last:border-none">
+        <span class="text-sm truncate">${rank} ${escapeHtml(name)}</span>
+        <span class="font-semibold text-[var(--leaf)] mono">${Math.round(item['Protein(g)'] || 0)}g</span>
+      </div>`;
+  }).join('');
+
+  container.innerHTML = rows;
+}
+
+function renderCorrelationTable(data) {
+  const container = elements.correlationTable;
+  if (!data) {
+    container.innerHTML = '<p class="text-[var(--muted)] text-center py-6">No correlation data available</p>';
+    return;
+  }
+
+  const nutrients = ['Protein(g)', 'Carbs(g)', 'Fat(g)'];
+  const headerCells = nutrients.map(n =>
+    `<th class="px-4 py-2 text-left text-sm font-semibold text-gray-600">${n.replace('(g)', '')}</th>`).join('');
+
+  const bodyRows = nutrients.map(row => {
+    const cells = nutrients.map(col => {
+      const value = data[row]?.[col];
+      const display = value !== undefined ? value.toFixed(3) : '—';
+      const color = value > 0.5 ? 'text-[var(--leaf)]' : value > 0 ? 'text-[var(--muted)]' : 'text-gray-300';
+      return `<td class="px-4 py-2 text-sm mono ${color}">${display}</td>`;
+    }).join('');
+    return `<tr class="border-t border-gray-100">
+      <td class="px-4 py-2 text-sm font-medium text-gray-700">${row.replace('(g)', '')}</td>${cells}
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <table class="min-w-full bg-white">
+      <thead><tr class="bg-gray-50">
+        <th class="px-4 py-2 text-left text-sm font-semibold text-gray-600">Nutrient</th>${headerCells}
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>`;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ===== STATUS / UI HELPERS =====
+function updateStatus(status, message = '') {
+  const badge = elements.statusBadge;
+  switch (status) {
+    case 'loading':
+      badge.className = 'bg-[var(--amber)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2';
+      badge.innerHTML = '<span class="spinner"></span> Loading…';
+      break;
+    case 'success':
+      badge.className = 'bg-[var(--leaf)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2';
+      badge.innerHTML = '<span class="w-2 h-2 bg-white rounded-full"></span> Online';
+      break;
+    case 'error':
+      badge.className = 'bg-[var(--alert)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2';
+      badge.innerHTML = `<span class="w-2 h-2 bg-white rounded-full"></span> ${escapeHtml(message || 'Offline')}`;
+      break;
+  }
+}
+
+function refreshData() { loadData(); }
+
+function toggleRawData() {
+  rawDataVisible = !rawDataVisible;
+  elements.rawDataContainer.classList.toggle('hidden', !rawDataVisible);
+  elements.rawToggleBtn.textContent = rawDataVisible ? 'Hide raw JSON' : 'Show raw JSON';
+  elements.rawToggleBtn.setAttribute('aria-expanded', String(rawDataVisible));
+}
+
+// ===== LIFECYCLE =====
+document.addEventListener('DOMContentLoaded', loadData);
+
+setInterval(() => {
+  if (document.visibilityState === 'visible' && !isLoading) refreshData();
+}, AUTO_REFRESH_MS);
+</script>
+</body>
+</html>
