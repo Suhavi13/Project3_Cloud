@@ -1,446 +1,1364 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Nutritional Insights Dashboard</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Inter:wght@400;500;600&family=Roboto+Mono:wght@500&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --paper:#faf9f5; --ink:#1c1b19; --line:#1c1b19;
-    --leaf:#3f7d45; --leaf-dim:#e7f0e7;
-    --amber:#b8791f; --amber-dim:#faf1e2;
-    --alert:#a83a3a; --alert-dim:#fbeaea;
-    --muted:#726f68;
-  }
-  *{ box-sizing:border-box; }
-  body{ background:var(--paper); color:var(--ink); font-family:'Inter',system-ui,sans-serif; }
-  .display{ font-family:'Archivo',system-ui,sans-serif; }
-  .mono{ font-family:'Roboto Mono',monospace; font-variant-numeric: tabular-nums; }
-
-  /* ---- signature: nutrition-facts label styling for the stats panel ---- */
-  .facts-panel{
-    background:#fff; border:3px solid var(--line); border-radius:2px;
-  }
-  .facts-title{
-    font-family:'Archivo',sans-serif; font-weight:800; font-size:1.75rem;
-    border-bottom:8px solid var(--line); padding-bottom:.35rem; letter-spacing:-0.01em;
-  }
-  .facts-row{ border-bottom:1px solid #d8d5cc; padding:.6rem 0; display:flex; justify-content:space-between; align-items:baseline; }
-  .facts-row:last-child{ border-bottom:none; }
-  .facts-label{ font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; }
-  .facts-value{ font-family:'Archivo',sans-serif; font-weight:800; font-size:1.6rem; }
-  .thick-rule{ border-top:8px solid var(--line); margin:.5rem 0; }
-
-  .card{ background:#fff; border:1px solid #e4e1d8; border-radius:10px; }
-  .chart-container{ position:relative; height:280px; }
-
-  .btn{
-    font-weight:600; border-radius:8px; padding:.6rem 1.1rem; transition:transform .15s, background .15s;
-    border:1px solid var(--line);
-  }
-  .btn:active{ transform: translateY(1px); }
-  .btn:focus-visible, a:focus-visible, button:focus-visible{
-    outline: 3px solid var(--leaf); outline-offset:2px;
-  }
-
-  .pulse{ animation: pulse 1.4s ease-in-out infinite; }
-  @keyframes pulse{ 0%,100%{opacity:.55} 50%{opacity:1} }
-  .spinner{
-    width:16px; height:16px; border-radius:50%;
-    border:2.5px solid rgba(255,255,255,.5); border-top-color:#fff;
-    animation: spin .8s linear infinite;
-  }
-  @keyframes spin{ to{ transform: rotate(360deg); } }
-  .skeleton{
-    background: linear-gradient(90deg,#eceae2 25%,#e2ded2 37%,#eceae2 63%);
-    background-size:400% 100%; animation: shimmer 1.4s ease infinite; border-radius:6px;
-  }
-  @keyframes shimmer{ 0%{background-position:100% 0} 100%{background-position:0 0} }
-
-  @media (prefers-reduced-motion: reduce){
-    .pulse,.spinner,.skeleton{ animation:none !important; }
-  }
-</style>
-</head>
-<body>
-
-<header class="border-b-4" style="border-color:var(--ink)">
-  <div class="max-w-6xl mx-auto px-5 py-6 flex flex-wrap justify-between items-center gap-4">
-    <div>
-      <p class="facts-label">Diet &amp; Recipe Analytics</p>
-      <h1 class="display text-3xl font-extrabold -mt-1">Nutritional Insights</h1>
-    </div>
-    <div class="flex items-center gap-3">
-      <span id="statusBadge" role="status" aria-live="polite"
-        class="bg-[var(--leaf)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2">
-        <span class="w-2 h-2 bg-white rounded-full"></span> Online
-      </span>
-      <button onclick="refreshData()" id="refreshBtn" class="btn bg-[var(--ink)] text-white hover:bg-black">
-        Refresh data
-      </button>
-    </div>
-  </div>
-</header>
-
-<main class="max-w-6xl mx-auto px-5 py-8">
-
-  <!-- Nutrition-facts styled stat panel -->
-  <section class="facts-panel p-6 mb-8 max-w-md" aria-label="Dataset summary">
-    <h2 class="facts-title">Dataset Facts</h2>
-    <div class="thick-rule"></div>
-    <div id="statsBody">
-      <div class="facts-row"><span class="facts-label">Total recipes</span><span id="totalRecipes" class="facts-value skeleton">&nbsp;</span></div>
-      <div class="facts-row"><span class="facts-label">Diet types tracked</span><span id="dietTypes" class="facts-value skeleton">&nbsp;</span></div>
-      <div class="facts-row"><span class="facts-label">Query time</span><span id="execTime" class="facts-value mono skeleton">&nbsp;</span></div>
-    </div>
-    <div class="thick-rule"></div>
-    <p id="dataSource" class="text-xs text-[var(--muted)]">Loading source info…</p>
-  </section>
-
-  <!-- Charts -->
-  <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-    <div class="card p-6">
-      <h3 class="font-semibold text-gray-800 mb-1">Average macronutrients by diet</h3>
-      <p class="text-sm text-[var(--muted)] mb-4">Protein, carbs, and fat across diet types</p>
-      <div class="chart-container"><canvas id="barChart" role="img" aria-label="Bar chart of average protein, carbs and fat per diet type"></canvas></div>
-    </div>
-
-    <div class="card p-6">
-      <h3 class="font-semibold text-gray-800 mb-1">Recipe distribution by diet</h3>
-      <p class="text-sm text-[var(--muted)] mb-4">Share of recipes per diet type</p>
-      <div class="chart-container"><canvas id="pieChart" role="img" aria-label="Pie chart of recipe counts per diet type"></canvas></div>
-    </div>
-
-    <div class="card p-6">
-      <h3 class="font-semibold text-gray-800 mb-1">Top cuisines</h3>
-      <p class="text-sm text-[var(--muted)] mb-4">Most common cuisine types</p>
-      <div class="chart-container"><canvas id="cuisineChart" role="img" aria-label="Bar chart of recipe counts per cuisine"></canvas></div>
-    </div>
-
-    <div class="card p-6">
-      <h3 class="font-semibold text-gray-800 mb-1">Top protein recipes</h3>
-      <p class="text-sm text-[var(--muted)] mb-4">Highest protein content, this dataset</p>
-      <div id="topProteinList" class="space-y-1 max-h-64 overflow-y-auto" aria-live="polite">
-        <p class="text-[var(--muted)] text-center py-6 pulse">Loading…</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Correlations -->
-  <section class="card p-6 mb-8">
-    <h3 class="font-semibold text-gray-800 mb-4">Nutrient correlations</h3>
-    <div id="correlationTable" class="overflow-x-auto">
-      <p class="text-[var(--muted)] text-center py-6 pulse">Loading…</p>
-    </div>
-  </section>
-
-  <!-- Raw data -->
-  <section class="card p-6">
-    <div class="flex justify-between items-center mb-3">
-      <h3 class="font-semibold text-gray-800">Raw API response</h3>
-      <button onclick="toggleRawData()" id="rawToggleBtn" class="text-[var(--leaf)] hover:underline text-sm font-medium"
-        aria-expanded="false" aria-controls="rawDataContainer">
-        Show raw JSON
-      </button>
-    </div>
-    <div id="rawDataContainer" class="hidden">
-      <pre id="rawData" class="bg-gray-50 border border-gray-200 p-4 rounded-lg text-xs overflow-auto max-h-96 mono"></pre>
-    </div>
-  </section>
-
-</main>
-
-<footer class="border-t mt-8 py-6" style="border-color:#e4e1d8">
-  <div class="max-w-6xl mx-auto px-5 text-center text-sm text-[var(--muted)]">
-    Built with Azure Functions + Chart.js
-  </div>
-</footer>
-
-<script>
-// ===== CONFIGURATION =====
-const API_URL = "https://dietfunc1784147923.azurewebsites.net/api/insights";
-const HEALTH_URL = "https://dietfunc1784147923.azurewebsites.net/api/health";
-const REQUEST_TIMEOUT_MS = 15000;
-const MAX_RETRIES = 2;
-const AUTO_REFRESH_MS = 60000;
-
-// ===== STATE =====
-let chartInstances = {};
-let currentData = null;
-let rawDataVisible = false;
-let isLoading = false;
-
-const elements = {
-  totalRecipes: document.getElementById('totalRecipes'),
-  dietTypes: document.getElementById('dietTypes'),
-  execTime: document.getElementById('execTime'),
-  topProteinList: document.getElementById('topProteinList'),
-  correlationTable: document.getElementById('correlationTable'),
-  rawData: document.getElementById('rawData'),
-  rawDataContainer: document.getElementById('rawDataContainer'),
-  dataSource: document.getElementById('dataSource'),
-  statusBadge: document.getElementById('statusBadge'),
-  refreshBtn: document.getElementById('refreshBtn'),
-};
-
-// ===== NETWORK HELPERS =====
-async function fetchWithTimeout(url, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function fetchWithRetry(url, retries = MAX_RETRIES) {
-  let lastError;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const res = await fetchWithTimeout(url, REQUEST_TIMEOUT_MS);
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      return res;
-    } catch (err) {
-      lastError = err;
-      if (attempt < retries) {
-        await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt))); // backoff
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nutritional Insights Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Inter:wght@400;500;600&family=Roboto+Mono:wght@500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --paper: #faf9f5;
+        --ink: #1c1b19;
+        --line: #1c1b19;
+        --leaf: #3f7d45;
+        --leaf-dim: #e7f0e7;
+        --amber: #b8791f;
+        --amber-dim: #faf1e2;
+        --alert: #a83a3a;
+        --alert-dim: #fbeaea;
+        --muted: #726f68;
       }
-    }
-  }
-  throw lastError;
-}
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--paper);
+        color: var(--ink);
+        font-family: "Inter", system-ui, sans-serif;
+      }
+      .display {
+        font-family: "Archivo", system-ui, sans-serif;
+      }
+      .mono {
+        font-family: "Roboto Mono", monospace;
+        font-variant-numeric: tabular-nums;
+      }
 
-// ===== MAIN FUNCTIONS =====
-async function loadData() {
-  if (isLoading) return;
-  isLoading = true;
-  elements.refreshBtn.disabled = true;
-  updateStatus('loading');
+      /* ---- signature: nutrition-facts label styling for the stats panel ---- */
+      .facts-panel {
+        background: #fff;
+        border: 3px solid var(--line);
+        border-radius: 2px;
+      }
+      .facts-title {
+        font-family: "Archivo", sans-serif;
+        font-weight: 800;
+        font-size: 1.75rem;
+        border-bottom: 8px solid var(--line);
+        padding-bottom: 0.35rem;
+        letter-spacing: -0.01em;
+      }
+      .facts-row {
+        border-bottom: 1px solid #d8d5cc;
+        padding: 0.6rem 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .facts-row:last-child {
+        border-bottom: none;
+      }
+      .facts-label {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .facts-value {
+        font-family: "Archivo", sans-serif;
+        font-weight: 800;
+        font-size: 1.6rem;
+      }
+      .thick-rule {
+        border-top: 8px solid var(--line);
+        margin: 0.5rem 0;
+      }
 
-  try {
-    await fetchWithRetry(HEALTH_URL);
-    const response = await fetchWithRetry(API_URL);
-    const data = await response.json();
-    currentData = data;
+      .card {
+        background: #fff;
+        border: 1px solid #e4e1d8;
+        border-radius: 10px;
+      }
+      .chart-container {
+        position: relative;
+        height: 280px;
+      }
 
-    if (data.status === 'success') {
-      updateDashboard(data);
-      updateStatus('success');
-    } else {
-      throw new Error(data.error || 'API reported an unknown error');
-    }
-  } catch (error) {
-    console.error('Error loading data:', error);
-    const message = error.name === 'AbortError' ? 'Request timed out' : error.message;
-    updateStatus('error', message);
-  } finally {
-    isLoading = false;
-    elements.refreshBtn.disabled = false;
-  }
-}
+      .btn {
+        font-weight: 600;
+        border-radius: 8px;
+        padding: 0.6rem 1.1rem;
+        transition:
+          transform 0.15s,
+          background 0.15s;
+        border: 1px solid var(--line);
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn:focus-visible,
+      a:focus-visible,
+      button:focus-visible {
+        outline: 3px solid var(--leaf);
+        outline-offset: 2px;
+      }
 
-function updateDashboard(data) {
-  elements.totalRecipes.textContent = data.total_records ?? 0;
-  elements.totalRecipes.classList.remove('skeleton');
-  elements.dietTypes.textContent = data.diet_types?.length ?? 0;
-  elements.dietTypes.classList.remove('skeleton');
-  elements.execTime.textContent = data.execution_time ? `${data.execution_time.toFixed(3)}s` : '—';
-  elements.execTime.classList.remove('skeleton');
+      .pulse {
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0.55;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 2.5px solid rgba(255, 255, 255, 0.5);
+        border-top-color: #fff;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .skeleton {
+        background: linear-gradient(
+          90deg,
+          #eceae2 25%,
+          #e2ded2 37%,
+          #eceae2 63%
+        );
+        background-size: 400% 100%;
+        animation: shimmer 1.4s ease infinite;
+        border-radius: 6px;
+      }
+      @keyframes shimmer {
+        0% {
+          background-position: 100% 0;
+        }
+        100% {
+          background-position: 0 0;
+        }
+      }
 
-  if (data.timestamp) {
-    const date = new Date(data.timestamp);
-    elements.dataSource.textContent = `Last updated ${date.toLocaleString()}`;
-  } else {
-    elements.dataSource.textContent = 'Update time unavailable';
-  }
+      @media (prefers-reduced-motion: reduce) {
+        .pulse,
+        .spinner,
+        .skeleton {
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Authentication screen: shown until a valid JWT is available -->
+    <section
+      id="authView"
+      class="min-h-screen flex items-center justify-center px-5 py-10"
+    >
+      <div class="card p-8 w-full max-w-md">
+        <div class="text-center mb-7">
+          <p class="facts-label">Diet &amp; Recipe Analytics</p>
+          <h1 class="display text-3xl font-extrabold">Nutritional Insights</h1>
+          <p class="text-sm text-[var(--muted)] mt-2">
+            Sign in to access the dashboard
+          </p>
+        </div>
 
-  renderBarChart(data.average_macronutrients);
-  renderPieChart(data.diet_counts);
-  renderCuisineChart(data.cuisine_counts);
-  renderTopProteinList(data.top_protein_recipes);
-  renderCorrelationTable(data.correlations);
+        <div id="loginPanel">
+          <h2 class="font-semibold text-xl mb-5">Sign In</h2>
+          <form onsubmit="handleLogin(event)">
+            <div class="mb-4">
+              <label for="loginEmail" class="block text-sm font-semibold mb-2"
+                >Email</label
+              >
+              <input
+                id="loginEmail"
+                type="email"
+                required
+                autocomplete="email"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div class="mb-5">
+              <label
+                for="loginPassword"
+                class="block text-sm font-semibold mb-2"
+                >Password</label
+              >
+              <input
+                id="loginPassword"
+                type="password"
+                required
+                autocomplete="current-password"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                placeholder="Password"
+              />
+            </div>
+            <button
+              id="loginButton"
+              type="submit"
+              class="btn bg-[var(--ink)] text-white w-full"
+            >
+              Sign In
+            </button>
+          </form>
+          <p
+            id="loginMessage"
+            class="text-sm mt-4 text-center"
+            aria-live="polite"
+          ></p>
 
-  elements.rawData.textContent = JSON.stringify(data, null, 2);
-}
+          <div class="flex items-center gap-3 my-6" aria-hidden="true">
+            <div class="h-px bg-gray-200 flex-1"></div>
+            <span class="text-xs uppercase tracking-wider text-[var(--muted)]"
+              >or</span
+            >
+            <div class="h-px bg-gray-200 flex-1"></div>
+          </div>
 
-// ===== CHART FUNCTIONS =====
-const PALETTE = ['#3f7d45', '#b8791f', '#3B6E8F', '#a83a3a', '#7d5fa6', '#c46a9e', '#2f9e94', '#c9772f'];
+          <div
+            id="googleSignInButton"
+            class="flex justify-center min-h-[44px]"
+          ></div>
+          <p
+            id="googleLoginMessage"
+            class="text-sm mt-3 text-center"
+            aria-live="polite"
+          ></p>
 
-function renderBarChart(data) {
-  const ctx = document.getElementById('barChart').getContext('2d');
-  if (chartInstances.bar) chartInstances.bar.destroy();
-  if (!data) return renderEmptyChart(ctx);
+          <p class="text-sm text-center mt-6">
+            Don't have an account?
+            <button
+              type="button"
+              onclick="showRegisterPanel()"
+              class="text-[var(--leaf)] font-semibold hover:underline"
+            >
+              Register
+            </button>
+          </p>
+        </div>
 
-  const dietTypes = Object.keys(data['Protein(g)'] || {});
-  const proteins = dietTypes.map(d => Math.round(data['Protein(g)']?.[d] || 0));
-  const carbs = dietTypes.map(d => Math.round(data['Carbs(g)']?.[d] || 0));
-  const fats = dietTypes.map(d => Math.round(data['Fat(g)']?.[d] || 0));
+        <div id="registerPanel" class="hidden">
+          <h2 class="font-semibold text-xl mb-5">Create Account</h2>
+          <form onsubmit="handleRegister(event)">
+            <div class="mb-4">
+              <label for="registerName" class="block text-sm font-semibold mb-2"
+                >Name</label
+              >
+              <input
+                id="registerName"
+                required
+                autocomplete="name"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                placeholder="Your name"
+              />
+            </div>
+            <div class="mb-4">
+              <label
+                for="registerEmail"
+                class="block text-sm font-semibold mb-2"
+                >Email</label
+              >
+              <input
+                id="registerEmail"
+                type="email"
+                required
+                autocomplete="email"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div class="mb-5">
+              <label
+                for="registerPassword"
+                class="block text-sm font-semibold mb-2"
+                >Password</label
+              >
+              <input
+                id="registerPassword"
+                type="password"
+                required
+                minlength="8"
+                autocomplete="new-password"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                placeholder="At least 8 characters"
+              />
+            </div>
+            <button
+              type="submit"
+              class="btn bg-[var(--leaf)] text-white w-full"
+            >
+              Create Account
+            </button>
+          </form>
+          <p
+            id="registerMessage"
+            class="text-sm mt-4 text-center"
+            aria-live="polite"
+          ></p>
+          <p class="text-sm text-center mt-6">
+            Already have an account?
+            <button
+              type="button"
+              onclick="showLoginPanel()"
+              class="text-[var(--leaf)] font-semibold hover:underline"
+            >
+              Sign In
+            </button>
+          </p>
+        </div>
+      </div>
+    </section>
 
-  chartInstances.bar = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: dietTypes.map(titleCase),
-      datasets: [
-        { label: 'Protein (g)', data: proteins, backgroundColor: PALETTE[0] },
-        { label: 'Carbs (g)', data: carbs, backgroundColor: PALETTE[1] },
-        { label: 'Fat (g)', data: fats, backgroundColor: PALETTE[2] },
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { position: 'top' } },
-      scales: { y: { beginAtZero: true, title: { display: true, text: 'Grams' } } }
-    }
-  });
-}
+    <div id="dashboardView" class="hidden">
+      <header class="border-b-4" style="border-color: var(--ink)">
+        <div
+          class="max-w-6xl mx-auto px-5 py-6 flex flex-wrap justify-between items-center gap-4"
+        >
+          <div>
+            <p class="facts-label">Diet &amp; Recipe Analytics</p>
+            <h1 class="display text-3xl font-extrabold -mt-1">
+              Nutritional Insights
+            </h1>
+          </div>
+          <div class="flex items-center gap-3">
+            <div
+              class="flex items-center gap-2 border-r border-gray-300 pr-3 mr-1"
+            >
+              <span id="loggedInUser" class="text-sm font-semibold"></span>
+              <button
+                onclick="logoutUser()"
+                class="text-sm text-[var(--alert)] hover:underline"
+              >
+                Logout
+              </button>
+            </div>
+            <span
+              id="statusBadge"
+              role="status"
+              aria-live="polite"
+              class="bg-[var(--leaf)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2"
+            >
+              <span class="w-2 h-2 bg-white rounded-full"></span> Online
+            </span>
+            <button
+              onclick="refreshData()"
+              id="refreshBtn"
+              class="btn bg-[var(--ink)] text-white hover:bg-black"
+            >
+              Refresh data
+            </button>
+          </div>
+        </div>
+      </header>
 
-function renderPieChart(data) {
-  const ctx = document.getElementById('pieChart').getContext('2d');
-  if (chartInstances.pie) chartInstances.pie.destroy();
-  if (!data) return renderEmptyChart(ctx);
+      <main class="max-w-6xl mx-auto px-5 py-8">
+        <!-- Nutrition-facts styled stat panel -->
+        <section
+          class="facts-panel p-6 mb-8 max-w-md"
+          aria-label="Dataset summary"
+        >
+          <h2 class="facts-title">Dataset Facts</h2>
+          <div class="thick-rule"></div>
+          <div id="statsBody">
+            <div class="facts-row">
+              <span class="facts-label">Total recipes</span
+              ><span id="totalRecipes" class="facts-value skeleton"
+                >&nbsp;</span
+              >
+            </div>
+            <div class="facts-row">
+              <span class="facts-label">Diet types tracked</span
+              ><span id="dietTypes" class="facts-value skeleton">&nbsp;</span>
+            </div>
+            <div class="facts-row">
+              <span class="facts-label">Query time</span
+              ><span id="execTime" class="facts-value mono skeleton"
+                >&nbsp;</span
+              >
+            </div>
+          </div>
+          <div class="thick-rule"></div>
+          <p id="dataSource" class="text-xs text-[var(--muted)]">
+            Loading source info…
+          </p>
+        </section>
 
-  const labels = Object.keys(data);
-  const values = Object.values(data);
+        <!-- Charts -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div class="card p-6">
+            <h3 class="font-semibold text-gray-800 mb-1">
+              Average macronutrients by diet
+            </h3>
+            <p class="text-sm text-[var(--muted)] mb-4">
+              Protein, carbs, and fat across diet types
+            </p>
+            <div class="chart-container">
+              <canvas
+                id="barChart"
+                role="img"
+                aria-label="Bar chart of average protein, carbs and fat per diet type"
+              ></canvas>
+            </div>
+          </div>
 
-  chartInstances.pie = new Chart(ctx, {
-    type: 'pie',
-    data: {
-      labels: labels.map(titleCase),
-      datasets: [{ data: values, backgroundColor: PALETTE.slice(0, labels.length) }]
-    },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
-  });
-}
+          <div class="card p-6">
+            <h3 class="font-semibold text-gray-800 mb-1">
+              Recipe distribution by diet
+            </h3>
+            <p class="text-sm text-[var(--muted)] mb-4">
+              Share of recipes per diet type
+            </p>
+            <div class="chart-container">
+              <canvas
+                id="pieChart"
+                role="img"
+                aria-label="Pie chart of recipe counts per diet type"
+              ></canvas>
+            </div>
+          </div>
 
-function renderCuisineChart(data) {
-  const ctx = document.getElementById('cuisineChart').getContext('2d');
-  if (chartInstances.cuisine) chartInstances.cuisine.destroy();
-  if (!data) return renderEmptyChart(ctx);
+          <div class="card p-6">
+            <h3 class="font-semibold text-gray-800 mb-1">Top cuisines</h3>
+            <p class="text-sm text-[var(--muted)] mb-4">
+              Most common cuisine types
+            </p>
+            <div class="chart-container">
+              <canvas
+                id="cuisineChart"
+                role="img"
+                aria-label="Bar chart of recipe counts per cuisine"
+              ></canvas>
+            </div>
+          </div>
 
-  const labels = Object.keys(data);
-  const values = Object.values(data);
+          <div class="card p-6">
+            <h3 class="font-semibold text-gray-800 mb-1">
+              Top protein recipes
+            </h3>
+            <p class="text-sm text-[var(--muted)] mb-4">
+              Highest protein content, this dataset
+            </p>
+            <div
+              id="topProteinList"
+              class="space-y-1 max-h-64 overflow-y-auto"
+              aria-live="polite"
+            >
+              <p class="text-[var(--muted)] text-center py-6 pulse">Loading…</p>
+            </div>
+          </div>
+        </section>
 
-  chartInstances.cuisine = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels.map(titleCase),
-      datasets: [{ label: 'Number of recipes', data: values, backgroundColor: PALETTE[4] }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true } }
-    }
-  });
-}
+        <!-- Correlations -->
+        <section class="card p-6 mb-8">
+          <h3 class="font-semibold text-gray-800 mb-4">
+            Nutrient correlations
+          </h3>
+          <div id="correlationTable" class="overflow-x-auto">
+            <p class="text-[var(--muted)] text-center py-6 pulse">Loading…</p>
+          </div>
+        </section>
 
-function renderEmptyChart(ctx) {
-  ctx.canvas.parentElement.insertAdjacentHTML('beforeend',
-    '<p class="text-[var(--muted)] text-sm text-center pt-16">No data returned for this chart.</p>');
-}
+        <!-- Recipe Data Interaction -->
+        <section class="card p-6 mb-8">
+          <div class="mb-6">
+            <h2 class="display text-2xl font-bold">Find Recipes</h2>
+            <p class="text-sm text-[var(--muted)] mt-1">
+              Filter by diet type, search by keyword, and browse paginated
+              results.
+            </p>
+          </div>
 
-function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+            <div>
+              <label for="dietFilter" class="block text-sm font-semibold mb-2"
+                >Diet Type</label
+              >
+              <select
+                id="dietFilter"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+              >
+                <option value="all">All Diet Types</option>
+              </select>
+            </div>
 
-// ===== LIST / TABLE FUNCTIONS =====
-function renderTopProteinList(recipes) {
-  const container = elements.topProteinList;
-  if (!recipes || recipes.length === 0) {
-    container.innerHTML = '<p class="text-[var(--muted)] text-center py-6">No data available</p>';
-    return;
-  }
+            <div>
+              <label for="recipeSearch" class="block text-sm font-semibold mb-2"
+                >Keyword</label
+              >
+              <input
+                id="recipeSearch"
+                type="text"
+                placeholder="Search chicken, Italian..."
+                class="w-full border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </div>
 
-  const rows = recipes.slice(0, 10).map((item, index) => {
-    const rank = ['🥇', '🥈', '🥉'][index] || `${index + 1}.`;
-    const rawName = item.Recipe_name || 'Unknown recipe';
-    const name = rawName.length > 40 ? rawName.slice(0, 40) + '…' : rawName;
-    return `
+            <div class="flex items-end gap-2">
+              <button
+                onclick="searchRecipes()"
+                class="btn bg-[var(--leaf)] text-white border-[var(--leaf)]"
+              >
+                Search
+              </button>
+              <button onclick="clearRecipeFilters()" class="btn bg-white">
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <p id="recipeResultCount" class="text-sm text-[var(--muted)]">
+              Loading recipes...
+            </p>
+            <p id="recipePageInfo" class="text-sm font-medium"></p>
+          </div>
+
+          <div id="recipeResults" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <p class="text-[var(--muted)]">Loading...</p>
+          </div>
+
+          <div
+            id="recipePagination"
+            class="flex justify-center items-center gap-4 mt-6"
+          >
+            <button
+              id="previousRecipeBtn"
+              onclick="previousRecipePage()"
+              class="btn bg-white"
+            >
+              ← Previous
+            </button>
+            <span id="recipePageNumber" class="text-sm font-semibold"
+              >Page 1</span
+            >
+            <button
+              id="nextRecipeBtn"
+              onclick="nextRecipePage()"
+              class="btn bg-white"
+            >
+              Next →
+            </button>
+          </div>
+        </section>
+
+        <!-- Raw data -->
+        <section class="card p-6">
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="font-semibold text-gray-800">Raw API response</h3>
+            <button
+              onclick="toggleRawData()"
+              id="rawToggleBtn"
+              class="text-[var(--leaf)] hover:underline text-sm font-medium"
+              aria-expanded="false"
+              aria-controls="rawDataContainer"
+            >
+              Show raw JSON
+            </button>
+          </div>
+          <div id="rawDataContainer" class="hidden">
+            <pre
+              id="rawData"
+              class="bg-gray-50 border border-gray-200 p-4 rounded-lg text-xs overflow-auto max-h-96 mono"
+            ></pre>
+          </div>
+        </section>
+      </main>
+
+      <footer class="border-t mt-8 py-6" style="border-color: #e4e1d8">
+        <div
+          class="max-w-6xl mx-auto px-5 text-center text-sm text-[var(--muted)]"
+        >
+          Built with Azure Functions + Chart.js
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      // ===== CONFIGURATION =====
+      // Local URLs for Phase 3 development. Replace with your own Azure Function URL before deployment.
+      const API_URL =
+        "https://nutritionalInsight.azurewebsites.net/api/insights";
+      const HEALTH_URL =
+        "https://nutritionalInsight.azurewebsites.net/api/health";
+      const RECIPES_URL =
+        "https://nutritionalInsight.azurewebsites.net/api/recipes";
+      const REGISTER_URL =
+        "https://nutritionalInsight.azurewebsites.net/api/auth/register";
+      const LOGIN_URL =
+        "https://nutritionalInsight.azurewebsites.net/api/auth/login";
+      const GOOGLE_LOGIN_URL =
+        "https://nutritionalInsight.azurewebsites.net/api/auth/google";
+      const AUTH_CONFIG_URL =
+        "https://nutritionalInsight.azurewebsites.net/api/auth/config";
+      const ME_URL = "https://nutritionalInsight.azurewebsites.net/api/auth/me";
+      const REQUEST_TIMEOUT_MS = 15000;
+      const MAX_RETRIES = 2;
+      const AUTO_REFRESH_MS = 60000;
+
+      // ===== STATE =====
+      let chartInstances = {};
+      let currentData = null;
+      let rawDataVisible = false;
+      let isLoading = false;
+      let currentRecipePage = 1;
+      let totalRecipePages = 1;
+      const RECIPE_PAGE_SIZE = 6;
+
+      const elements = {
+        totalRecipes: document.getElementById("totalRecipes"),
+        dietTypes: document.getElementById("dietTypes"),
+        execTime: document.getElementById("execTime"),
+        topProteinList: document.getElementById("topProteinList"),
+        correlationTable: document.getElementById("correlationTable"),
+        rawData: document.getElementById("rawData"),
+        rawDataContainer: document.getElementById("rawDataContainer"),
+        rawToggleBtn: document.getElementById("rawToggleBtn"),
+        dataSource: document.getElementById("dataSource"),
+        statusBadge: document.getElementById("statusBadge"),
+        refreshBtn: document.getElementById("refreshBtn"),
+        dietFilter: document.getElementById("dietFilter"),
+        recipeSearch: document.getElementById("recipeSearch"),
+        recipeResults: document.getElementById("recipeResults"),
+        recipeResultCount: document.getElementById("recipeResultCount"),
+        recipePageInfo: document.getElementById("recipePageInfo"),
+        recipePageNumber: document.getElementById("recipePageNumber"),
+        previousRecipeBtn: document.getElementById("previousRecipeBtn"),
+        nextRecipeBtn: document.getElementById("nextRecipeBtn"),
+      };
+
+      // ===== NETWORK HELPERS =====
+      async function fetchWithTimeout(url, timeoutMs, options = {}) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const token = sessionStorage.getItem("authToken");
+        const headers = { ...(options.headers || {}) };
+
+        // /health is public. Avoid an unnecessary Authorization preflight there.
+        const shouldSendAuth = url !== HEALTH_URL;
+
+        if (token && shouldSendAuth) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+
+        try {
+          return await fetch(url, {
+            ...options,
+            headers,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      async function fetchWithRetry(url, retries = MAX_RETRIES) {
+        let lastError;
+        for (let attempt = 0; attempt <= retries; attempt++) {
+          try {
+            const res = await fetchWithTimeout(url, REQUEST_TIMEOUT_MS);
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            return res;
+          } catch (err) {
+            lastError = err;
+            if (attempt < retries) {
+              await new Promise((r) =>
+                setTimeout(r, 500 * Math.pow(2, attempt)),
+              ); // backoff
+            }
+          }
+        }
+        throw lastError;
+      }
+
+      // ===== MAIN FUNCTIONS =====
+      async function loadData() {
+        if (isLoading) return;
+        isLoading = true;
+        elements.refreshBtn.disabled = true;
+        updateStatus("loading");
+
+        try {
+          await fetchWithRetry(HEALTH_URL);
+          const response = await fetchWithRetry(API_URL);
+          const data = await response.json();
+          currentData = data;
+
+          if (data.status === "success") {
+            updateDashboard(data);
+            updateStatus("success");
+          } else {
+            throw new Error(data.error || "API reported an unknown error");
+          }
+        } catch (error) {
+          console.error("Error loading data:", error);
+          const message =
+            error.name === "AbortError" ? "Request timed out" : error.message;
+          updateStatus("error", message);
+        } finally {
+          isLoading = false;
+          elements.refreshBtn.disabled = false;
+        }
+      }
+
+      function updateDashboard(data) {
+        elements.totalRecipes.textContent = data.total_records ?? 0;
+        elements.totalRecipes.classList.remove("skeleton");
+        elements.dietTypes.textContent = data.diet_types?.length ?? 0;
+        elements.dietTypes.classList.remove("skeleton");
+        elements.execTime.textContent = data.execution_time
+          ? `${data.execution_time.toFixed(3)}s`
+          : "—";
+        elements.execTime.classList.remove("skeleton");
+
+        if (data.timestamp) {
+          const date = new Date(data.timestamp);
+          elements.dataSource.textContent = `Last updated ${date.toLocaleString()}`;
+        } else {
+          elements.dataSource.textContent = "Update time unavailable";
+        }
+
+        populateDietFilter(data.diet_types || []);
+
+        renderBarChart(data.average_macronutrients);
+        renderPieChart(data.diet_counts);
+        renderCuisineChart(data.cuisine_counts);
+        renderTopProteinList(data.top_protein_recipes);
+        renderCorrelationTable(data.correlations);
+
+        elements.rawData.textContent = JSON.stringify(data, null, 2);
+      }
+
+      // ===== CHART FUNCTIONS =====
+      const PALETTE = [
+        "#3f7d45",
+        "#b8791f",
+        "#3B6E8F",
+        "#a83a3a",
+        "#7d5fa6",
+        "#c46a9e",
+        "#2f9e94",
+        "#c9772f",
+      ];
+
+      function renderBarChart(data) {
+        const ctx = document.getElementById("barChart").getContext("2d");
+        if (chartInstances.bar) chartInstances.bar.destroy();
+        if (!data) return renderEmptyChart(ctx);
+
+        const dietTypes = Object.keys(data["Protein(g)"] || {});
+        const proteins = dietTypes.map((d) =>
+          Math.round(data["Protein(g)"]?.[d] || 0),
+        );
+        const carbs = dietTypes.map((d) =>
+          Math.round(data["Carbs(g)"]?.[d] || 0),
+        );
+        const fats = dietTypes.map((d) => Math.round(data["Fat(g)"]?.[d] || 0));
+
+        chartInstances.bar = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: dietTypes.map(titleCase),
+            datasets: [
+              {
+                label: "Protein (g)",
+                data: proteins,
+                backgroundColor: PALETTE[0],
+              },
+              { label: "Carbs (g)", data: carbs, backgroundColor: PALETTE[1] },
+              { label: "Fat (g)", data: fats, backgroundColor: PALETTE[2] },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: "top" } },
+            scales: {
+              y: { beginAtZero: true, title: { display: true, text: "Grams" } },
+            },
+          },
+        });
+      }
+
+      function renderPieChart(data) {
+        const ctx = document.getElementById("pieChart").getContext("2d");
+        if (chartInstances.pie) chartInstances.pie.destroy();
+        if (!data) return renderEmptyChart(ctx);
+
+        const labels = Object.keys(data);
+        const values = Object.values(data);
+
+        chartInstances.pie = new Chart(ctx, {
+          type: "pie",
+          data: {
+            labels: labels.map(titleCase),
+            datasets: [
+              {
+                data: values,
+                backgroundColor: PALETTE.slice(0, labels.length),
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: "right" } },
+          },
+        });
+      }
+
+      function renderCuisineChart(data) {
+        const ctx = document.getElementById("cuisineChart").getContext("2d");
+        if (chartInstances.cuisine) chartInstances.cuisine.destroy();
+        if (!data) return renderEmptyChart(ctx);
+
+        const labels = Object.keys(data);
+        const values = Object.values(data);
+
+        chartInstances.cuisine = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: labels.map(titleCase),
+            datasets: [
+              {
+                label: "Number of recipes",
+                data: values,
+                backgroundColor: PALETTE[4],
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } },
+          },
+        });
+      }
+
+      function renderEmptyChart(ctx) {
+        ctx.canvas.parentElement.insertAdjacentHTML(
+          "beforeend",
+          '<p class="text-[var(--muted)] text-sm text-center pt-16">No data returned for this chart.</p>',
+        );
+      }
+
+      function titleCase(s) {
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      }
+
+      // ===== LIST / TABLE FUNCTIONS =====
+      function renderTopProteinList(recipes) {
+        const container = elements.topProteinList;
+        if (!recipes || recipes.length === 0) {
+          container.innerHTML =
+            '<p class="text-[var(--muted)] text-center py-6">No data available</p>';
+          return;
+        }
+
+        const rows = recipes
+          .slice(0, 10)
+          .map((item, index) => {
+            const rank = ["🥇", "🥈", "🥉"][index] || `${index + 1}.`;
+            const rawName = item.Recipe_name || "Unknown recipe";
+            const name =
+              rawName.length > 40 ? rawName.slice(0, 40) + "…" : rawName;
+            return `
       <div class="flex justify-between items-center px-1 py-2 border-b border-gray-100 last:border-none">
         <span class="text-sm truncate">${rank} ${escapeHtml(name)}</span>
-        <span class="font-semibold text-[var(--leaf)] mono">${Math.round(item['Protein(g)'] || 0)}g</span>
+        <span class="font-semibold text-[var(--leaf)] mono">${Math.round(item["Protein(g)"] || 0)}g</span>
       </div>`;
-  }).join('');
+          })
+          .join("");
 
-  container.innerHTML = rows;
-}
+        container.innerHTML = rows;
+      }
 
-function renderCorrelationTable(data) {
-  const container = elements.correlationTable;
-  if (!data) {
-    container.innerHTML = '<p class="text-[var(--muted)] text-center py-6">No correlation data available</p>';
-    return;
-  }
+      function renderCorrelationTable(data) {
+        const container = elements.correlationTable;
+        if (!data) {
+          container.innerHTML =
+            '<p class="text-[var(--muted)] text-center py-6">No correlation data available</p>';
+          return;
+        }
 
-  const nutrients = ['Protein(g)', 'Carbs(g)', 'Fat(g)'];
-  const headerCells = nutrients.map(n =>
-    `<th class="px-4 py-2 text-left text-sm font-semibold text-gray-600">${n.replace('(g)', '')}</th>`).join('');
+        const nutrients = ["Protein(g)", "Carbs(g)", "Fat(g)"];
+        const headerCells = nutrients
+          .map(
+            (n) =>
+              `<th class="px-4 py-2 text-left text-sm font-semibold text-gray-600">${n.replace("(g)", "")}</th>`,
+          )
+          .join("");
 
-  const bodyRows = nutrients.map(row => {
-    const cells = nutrients.map(col => {
-      const value = data[row]?.[col];
-      const display = value !== undefined ? value.toFixed(3) : '—';
-      const color = value > 0.5 ? 'text-[var(--leaf)]' : value > 0 ? 'text-[var(--muted)]' : 'text-gray-300';
-      return `<td class="px-4 py-2 text-sm mono ${color}">${display}</td>`;
-    }).join('');
-    return `<tr class="border-t border-gray-100">
-      <td class="px-4 py-2 text-sm font-medium text-gray-700">${row.replace('(g)', '')}</td>${cells}
+        const bodyRows = nutrients
+          .map((row) => {
+            const cells = nutrients
+              .map((col) => {
+                const value = data[row]?.[col];
+                const display = value !== undefined ? value.toFixed(3) : "—";
+                const color =
+                  value > 0.5
+                    ? "text-[var(--leaf)]"
+                    : value > 0
+                      ? "text-[var(--muted)]"
+                      : "text-gray-300";
+                return `<td class="px-4 py-2 text-sm mono ${color}">${display}</td>`;
+              })
+              .join("");
+            return `<tr class="border-t border-gray-100">
+      <td class="px-4 py-2 text-sm font-medium text-gray-700">${row.replace("(g)", "")}</td>${cells}
     </tr>`;
-  }).join('');
+          })
+          .join("");
 
-  container.innerHTML = `
+        container.innerHTML = `
     <table class="min-w-full bg-white">
       <thead><tr class="bg-gray-50">
         <th class="px-4 py-2 text-left text-sm font-semibold text-gray-600">Nutrient</th>${headerCells}
       </tr></thead>
       <tbody>${bodyRows}</tbody>
     </table>`;
-}
+      }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
+      function escapeHtml(str) {
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+      }
 
-// ===== STATUS / UI HELPERS =====
-function updateStatus(status, message = '') {
-  const badge = elements.statusBadge;
-  switch (status) {
-    case 'loading':
-      badge.className = 'bg-[var(--amber)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2';
-      badge.innerHTML = '<span class="spinner"></span> Loading…';
-      break;
-    case 'success':
-      badge.className = 'bg-[var(--leaf)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2';
-      badge.innerHTML = '<span class="w-2 h-2 bg-white rounded-full"></span> Online';
-      break;
-    case 'error':
-      badge.className = 'bg-[var(--alert)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2';
-      badge.innerHTML = `<span class="w-2 h-2 bg-white rounded-full"></span> ${escapeHtml(message || 'Offline')}`;
-      break;
-  }
-}
+      // ===== RECIPE DATA INTERACTION =====
+      async function loadRecipes(page = 1) {
+        currentRecipePage = page;
 
-function refreshData() { loadData(); }
+        const diet = elements.dietFilter.value || "all";
+        const search = elements.recipeSearch.value.trim();
+        const params = new URLSearchParams({
+          diet,
+          search,
+          page: currentRecipePage,
+          page_size: RECIPE_PAGE_SIZE,
+        });
 
-function toggleRawData() {
-  rawDataVisible = !rawDataVisible;
-  elements.rawDataContainer.classList.toggle('hidden', !rawDataVisible);
-  elements.rawToggleBtn.textContent = rawDataVisible ? 'Hide raw JSON' : 'Show raw JSON';
-  elements.rawToggleBtn.setAttribute('aria-expanded', String(rawDataVisible));
-}
+        elements.recipeResults.innerHTML =
+          '<p class="text-[var(--muted)] pulse">Loading recipes...</p>';
 
-// ===== LIFECYCLE =====
-document.addEventListener('DOMContentLoaded', loadData);
+        try {
+          const response = await fetchWithRetry(
+            `${RECIPES_URL}?${params.toString()}`,
+          );
+          const data = await response.json();
 
-setInterval(() => {
-  if (document.visibilityState === 'visible' && !isLoading) refreshData();
-}, AUTO_REFRESH_MS);
-</script>
-</body>
+          if (data.status !== "success") {
+            throw new Error(data.error || "Unable to load recipes");
+          }
+
+          renderRecipes(data);
+        } catch (error) {
+          console.error("Recipe search failed:", error);
+          elements.recipeResults.innerHTML = `
+      <div class="col-span-full bg-[var(--alert-dim)] border border-[var(--alert)] p-4 rounded-lg">
+        <p class="text-[var(--alert)] font-semibold">Could not load recipes.</p>
+        <p class="text-sm mt-1">${escapeHtml(error.message)}</p>
+      </div>`;
+        }
+      }
+
+      function renderRecipes(data) {
+        const recipes = data.recipes || [];
+        const pagination = data.pagination || {};
+
+        totalRecipePages = pagination.total_pages || 1;
+        currentRecipePage = pagination.page || 1;
+
+        elements.recipeResultCount.textContent = `${pagination.total_results || 0} recipes found`;
+        elements.recipePageInfo.textContent =
+          pagination.total_pages > 0
+            ? `Page ${currentRecipePage} of ${totalRecipePages}`
+            : "No pages";
+        elements.recipePageNumber.textContent =
+          pagination.total_pages > 0
+            ? `Page ${currentRecipePage} of ${totalRecipePages}`
+            : "Page 0";
+
+        elements.previousRecipeBtn.disabled = !pagination.has_previous;
+        elements.nextRecipeBtn.disabled = !pagination.has_next;
+        elements.previousRecipeBtn.classList.toggle(
+          "opacity-40",
+          !pagination.has_previous,
+        );
+        elements.nextRecipeBtn.classList.toggle(
+          "opacity-40",
+          !pagination.has_next,
+        );
+
+        if (recipes.length === 0) {
+          elements.recipeResults.innerHTML = `
+      <div class="col-span-full text-center py-10">
+        <p class="font-semibold">No recipes found</p>
+        <p class="text-sm text-[var(--muted)] mt-1">Try another diet type or keyword.</p>
+      </div>`;
+          return;
+        }
+
+        elements.recipeResults.innerHTML = recipes
+          .map((recipe) => {
+            const name = recipe.Recipe_name || "Unnamed Recipe";
+            const diet = recipe.Diet_type || "Unknown";
+            const cuisine = recipe.Cuisine_type || "Unknown";
+            const protein = Number(recipe["Protein(g)"] || 0);
+            const carbs = Number(recipe["Carbs(g)"] || 0);
+            const fat = Number(recipe["Fat(g)"] || 0);
+
+            return `
+      <article class="border border-gray-200 rounded-lg p-5 bg-white">
+        <div class="flex justify-between gap-4 mb-3">
+          <h3 class="font-semibold text-lg">${escapeHtml(name)}</h3>
+          <span class="bg-[var(--leaf-dim)] text-[var(--leaf)] px-2 py-1 rounded-full text-xs font-semibold h-fit">
+            ${escapeHtml(titleCase(diet))}
+          </span>
+        </div>
+        <p class="text-sm text-[var(--muted)] mb-4">${escapeHtml(titleCase(cuisine))} cuisine</p>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-gray-50 rounded-md p-2 text-center"><p class="facts-label">Protein</p><p class="font-semibold mono">${protein.toFixed(1)}g</p></div>
+          <div class="bg-gray-50 rounded-md p-2 text-center"><p class="facts-label">Carbs</p><p class="font-semibold mono">${carbs.toFixed(1)}g</p></div>
+          <div class="bg-gray-50 rounded-md p-2 text-center"><p class="facts-label">Fat</p><p class="font-semibold mono">${fat.toFixed(1)}g</p></div>
+        </div>
+      </article>`;
+          })
+          .join("");
+      }
+
+      function searchRecipes() {
+        currentRecipePage = 1;
+        loadRecipes(1);
+      }
+
+      function clearRecipeFilters() {
+        elements.dietFilter.value = "all";
+        elements.recipeSearch.value = "";
+        currentRecipePage = 1;
+        loadRecipes(1);
+      }
+
+      function previousRecipePage() {
+        if (currentRecipePage > 1) loadRecipes(currentRecipePage - 1);
+      }
+
+      function nextRecipePage() {
+        if (currentRecipePage < totalRecipePages)
+          loadRecipes(currentRecipePage + 1);
+      }
+
+      function populateDietFilter(diets) {
+        if (!diets || diets.length === 0) return;
+
+        const current = elements.dietFilter.value;
+        elements.dietFilter.innerHTML =
+          '<option value="all">All Diet Types</option>';
+
+        diets.forEach((diet) => {
+          const option = document.createElement("option");
+          option.value = diet;
+          option.textContent = titleCase(diet);
+          elements.dietFilter.appendChild(option);
+        });
+
+        if (
+          [...elements.dietFilter.options].some(
+            (option) => option.value === current,
+          )
+        ) {
+          elements.dietFilter.value = current;
+        }
+      }
+
+      elements.recipeSearch.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") searchRecipes();
+      });
+
+      // ===== STATUS / UI HELPERS =====
+      function updateStatus(status, message = "") {
+        const badge = elements.statusBadge;
+        switch (status) {
+          case "loading":
+            badge.className =
+              "bg-[var(--amber)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2";
+            badge.innerHTML = '<span class="spinner"></span> Loading…';
+            break;
+          case "success":
+            badge.className =
+              "bg-[var(--leaf)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2";
+            badge.innerHTML =
+              '<span class="w-2 h-2 bg-white rounded-full"></span> Online';
+            break;
+          case "error":
+            badge.className =
+              "bg-[var(--alert)] text-white px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2";
+            badge.innerHTML = `<span class="w-2 h-2 bg-white rounded-full"></span> ${escapeHtml(message || "Offline")}`;
+            break;
+        }
+      }
+
+      function refreshData() {
+        loadData();
+      }
+
+      function toggleRawData() {
+        rawDataVisible = !rawDataVisible;
+        elements.rawDataContainer.classList.toggle("hidden", !rawDataVisible);
+        elements.rawToggleBtn.textContent = rawDataVisible
+          ? "Hide raw JSON"
+          : "Show raw JSON";
+        elements.rawToggleBtn.setAttribute(
+          "aria-expanded",
+          String(rawDataVisible),
+        );
+      }
+
+      // ===== AUTHENTICATION UI =====
+      function showLoginPanel() {
+        document.getElementById("loginPanel").classList.remove("hidden");
+        document.getElementById("registerPanel").classList.add("hidden");
+      }
+
+      function showRegisterPanel() {
+        document.getElementById("loginPanel").classList.add("hidden");
+        document.getElementById("registerPanel").classList.remove("hidden");
+      }
+
+      function showAuthView() {
+        document.getElementById("authView").classList.remove("hidden");
+        document.getElementById("dashboardView").classList.add("hidden");
+      }
+
+      function showDashboard(user) {
+        document.getElementById("authView").classList.add("hidden");
+        document.getElementById("dashboardView").classList.remove("hidden");
+        document.getElementById("loggedInUser").textContent =
+          user.name || user.email;
+      }
+
+      async function handleLogin(event) {
+        event.preventDefault();
+        const message = document.getElementById("loginMessage");
+        message.textContent = "Signing in...";
+        message.className = "text-sm mt-4 text-center text-[var(--muted)]";
+
+        try {
+          const response = await fetch(LOGIN_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: document.getElementById("loginEmail").value.trim(),
+              password: document.getElementById("loginPassword").value,
+            }),
+          });
+
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Login failed.");
+
+          sessionStorage.setItem("authToken", data.token);
+          message.textContent = "";
+          showDashboard(data.user);
+          await loadData();
+          await loadRecipes(1);
+        } catch (error) {
+          message.textContent = error.message;
+          message.className = "text-sm mt-4 text-center text-[var(--alert)]";
+        }
+      }
+
+      async function handleRegister(event) {
+        event.preventDefault();
+        const message = document.getElementById("registerMessage");
+        message.textContent = "Creating account...";
+        message.className = "text-sm mt-4 text-center text-[var(--muted)]";
+
+        try {
+          const response = await fetch(REGISTER_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: document.getElementById("registerName").value.trim(),
+              email: document.getElementById("registerEmail").value.trim(),
+              password: document.getElementById("registerPassword").value,
+            }),
+          });
+
+          const data = await response.json();
+          if (!response.ok)
+            throw new Error(data.error || "Registration failed.");
+
+          sessionStorage.setItem("authToken", data.token);
+          message.textContent = "";
+          showDashboard(data.user);
+          await loadData();
+          await loadRecipes(1);
+        } catch (error) {
+          message.textContent = error.message;
+          message.className = "text-sm mt-4 text-center text-[var(--alert)]";
+        }
+      }
+
+      function waitForGoogleIdentity(timeoutMs = 7000) {
+        return new Promise((resolve, reject) => {
+          const started = Date.now();
+
+          const check = () => {
+            if (window.google?.accounts?.id) {
+              resolve();
+              return;
+            }
+
+            if (Date.now() - started >= timeoutMs) {
+              reject(new Error("Google Identity Services did not load."));
+              return;
+            }
+
+            setTimeout(check, 100);
+          };
+
+          check();
+        });
+      }
+
+      async function initializeGoogleSignIn() {
+        const button = document.getElementById("googleSignInButton");
+        const message = document.getElementById("googleLoginMessage");
+
+        if (!button || !message) return;
+
+        try {
+          const response = await fetch(AUTH_CONFIG_URL);
+          const config = await response.json();
+
+          if (
+            !response.ok ||
+            !config.google_enabled ||
+            !config.google_client_id
+          ) {
+            message.textContent = "Google sign-in is not configured yet.";
+            message.className = "text-sm mt-3 text-center text-[var(--muted)]";
+            return;
+          }
+
+          await waitForGoogleIdentity();
+
+          google.accounts.id.initialize({
+            client_id: config.google_client_id,
+            callback: handleGoogleCredential,
+            auto_select: false,
+          });
+
+          google.accounts.id.renderButton(button, {
+            theme: "outline",
+            size: "large",
+            type: "standard",
+            shape: "rectangular",
+            text: "signin_with",
+            width: 320,
+          });
+        } catch (error) {
+          console.error("Google Sign-In initialization failed:", error);
+          message.textContent = error.message;
+          message.className = "text-sm mt-3 text-center text-[var(--alert)]";
+        }
+      }
+
+      async function handleGoogleCredential(credentialResponse) {
+        const message = document.getElementById("googleLoginMessage");
+        message.textContent = "Signing in with Google...";
+        message.className = "text-sm mt-3 text-center text-[var(--muted)]";
+
+        try {
+          const response = await fetch(GOOGLE_LOGIN_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              credential: credentialResponse.credential,
+            }),
+          });
+
+          const data = await response.json();
+          if (!response.ok)
+            throw new Error(data.error || "Google sign-in failed.");
+
+          sessionStorage.setItem("authToken", data.token);
+          message.textContent = "";
+          showDashboard(data.user);
+          await loadData();
+          await loadRecipes(1);
+        } catch (error) {
+          console.error("Google Sign-In failed:", error);
+          message.textContent = error.message;
+          message.className = "text-sm mt-3 text-center text-[var(--alert)]";
+        }
+      }
+
+      function logoutUser() {
+        sessionStorage.removeItem("authToken");
+
+        if (window.google?.accounts?.id) {
+          google.accounts.id.disableAutoSelect();
+        }
+
+        showAuthView();
+        showLoginPanel();
+        document.getElementById("loginPassword").value = "";
+      }
+
+      async function initializeApp() {
+        const token = sessionStorage.getItem("authToken");
+
+        if (!token) {
+          showAuthView();
+          return;
+        }
+
+        try {
+          const response = await fetchWithTimeout(ME_URL, REQUEST_TIMEOUT_MS);
+          if (!response.ok) throw new Error("Session expired");
+
+          const data = await response.json();
+          showDashboard(data.user);
+          await loadData();
+          await loadRecipes(1);
+        } catch (error) {
+          console.warn("Stored session is no longer valid:", error);
+          sessionStorage.removeItem("authToken");
+          showAuthView();
+        }
+      }
+
+      // ===== LIFECYCLE =====
+      document.addEventListener("DOMContentLoaded", () => {
+        initializeApp();
+        initializeGoogleSignIn();
+      });
+
+      setInterval(() => {
+        const token = sessionStorage.getItem("authToken");
+        if (token && document.visibilityState === "visible" && !isLoading) {
+          refreshData();
+        }
+      }, AUTO_REFRESH_MS);
+    </script>
+  </body>
 </html>

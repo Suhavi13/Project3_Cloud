@@ -1,0 +1,15 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "DIET_STORAGE_CONNECTION": "UseDevelopmentStorage=true",
+    "DATA_CONTAINER_NAME": "datasets",
+    "BLOB_NAME": "All_Diets.csv",
+    "COSMOS_CONNECTION_STRING": "PASTE_YOUR_OWN_COSMOS_CONNECTION_STRING_HERE",
+    "AUTH_DATABASE_NAME": "dietappdb",
+    "AUTH_CONTAINER_NAME": "users",
+    "JWT_SECRET": "PASTE_A_RANDOM_SECRET_HERE",
+    "GOOGLE_CLIENT_ID": "PASTE_YOUR_WEB_CLIENT_ID.apps.googleusercontent.com"
+  }
+}
