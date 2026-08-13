@@ -252,6 +252,7 @@ def get_json_body(req: func.HttpRequest):
     arg_name="source_blob",
     path=SOURCE_BLOB_PATH,
     connection="DIET_STORAGE_CONNECTION",
+    source="EventGrid"
 )
 def process_all_diets(source_blob: func.InputStream) -> None:
     started_at = datetime.now(timezone.utc)
