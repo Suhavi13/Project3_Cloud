@@ -250,53 +250,76 @@ def get_json_body(req: func.HttpRequest):
 # ============================================================
 @app.blob_trigger(
     arg_name="source_blob",
-    path=SOURCE_BLOB_PATH,
+    path="datasets/All_Diets.csv",
     connection="DIET_STORAGE_CONNECTION",
     source="EventGrid"
 )
 def process_all_diets(source_blob: func.InputStream) -> None:
     started_at = datetime.now(timezone.utc)
-    logging.info("PHASE 3: All_Diets.csv change detected. Starting processing.")
+
+    logging.info(
+        "PHASE 3: All_Diets.csv change detected. Starting processing."
+    )
     logging.info("Triggered by blob: %s", source_blob.name)
 
     try:
-        raw_bytes = source_blob.read()
-        df = pd.read_csv(io.BytesIO(raw_bytes))
-        logging.info("Loaded %s rows from the source CSV.", len(df))
+        raw_data = source_blob.read()
+
+        logging.info(
+            "PHASE 3 DEBUG: Blob name=%s, bytes=%s",
+            source_blob.name,
+            len(raw_data)
+        )
+
+        if not raw_data:
+            raise ValueError("Uploaded All_Diets.csv is empty.")
+
+        header_preview = (
+            raw_data[:500]
+            .decode("utf-8-sig", errors="replace")
+            .splitlines()[0]
+        )
+
+        logging.info(
+            "PHASE 3 DEBUG: CSV first line: %s",
+            header_preview
+        )
+
+        df = pd.read_csv(
+            io.BytesIO(raw_data),
+            encoding="utf-8-sig"
+        )
+
+        # Remove BOM / accidental whitespace from headers
+        df.columns = (
+            df.columns
+            .astype(str)
+            .str.replace("\ufeff", "", regex=False)
+            .str.strip()
+        )
+
+        logging.info(
+            "PHASE 3 DEBUG: Parsed columns: %s",
+            df.columns.tolist()
+        )
+
+        logging.info(
+            "PHASE 3 DEBUG: Loaded %s rows.",
+            len(df)
+        )
 
         cleaned_df = clean_data(df)
 
-        cleaned_csv = cleaned_df.to_csv(index=False).encode("utf-8")
-        get_blob_client(CLEANED_BLOB_NAME).upload_blob(
-            cleaned_csv,
-            overwrite=True,
-            content_settings=ContentSettings(content_type="text/csv"),
-        )
-        logging.info("Saved cleaned dataset to %s.", CLEANED_BLOB_NAME)
+        # KEEP YOUR EXISTING CODE BELOW THIS POINT
+        # Save cleaned CSV
+        # Calculate insights
+        # Save cache
 
-        processing_seconds = (
-            datetime.now(timezone.utc) - started_at
-        ).total_seconds()
-        cache_payload = calculate_insights(cleaned_df, processing_seconds)
-
-        get_blob_client(CACHE_BLOB_NAME).upload_blob(
-            json.dumps(cache_payload, ensure_ascii=False),
-            overwrite=True,
-            content_settings=ContentSettings(content_type="application/json"),
-        )
-
-        final_seconds = (
-            datetime.now(timezone.utc) - started_at
-        ).total_seconds()
-        logging.info(
-            "PHASE 3: Processing complete in %.3fs. Cache saved to %s.",
-            final_seconds,
-            CACHE_BLOB_NAME,
-        )
     except Exception:
-        logging.exception("PHASE 3: Failed to process All_Diets.csv.")
+        logging.exception(
+            "PHASE 3: Failed to process All_Diets.csv."
+        )
         raise
-
 
 # ============================================================
 # Authentication API
